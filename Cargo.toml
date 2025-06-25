@@ -1,0 +1,17 @@
+[package]
+name = "multicast-discovery-socket"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sha2 = "0.10.9"
+log = "0.4.27"
+socket2 = "0.5.10"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30.1", features = ["socket", "net", "uio"] }
+
+[target.'cfg(windows)'.dependencies]
+
+[dev-dependencies]
+simple_logger = "5.0.0"
