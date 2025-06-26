@@ -8,13 +8,15 @@ fn main() {
     let sock1 = MultiInterfaceSocket::bind_any().unwrap();
     let sock2 = MultiInterfaceSocket::bind_any().unwrap();
 
-    let addr1 = sock1.get_bind_addr().unwrap();
-    let addr2 = sock2.get_bind_addr().unwrap();
+    let mut addr1 = sock1.get_bind_addr().unwrap();
+    let mut addr2 = sock2.get_bind_addr().unwrap();
+    addr1.set_ip(Ipv4Addr::new(127, 0, 0, 1));
+    addr2.set_ip(Ipv4Addr::new(127, 0, 0, 1));
     info!("Socket 1 bound to: {}", addr1);
     info!("Socket 2 bound to: {}", addr2);
 
     // Send to the default system interface
-    sock2.send_to_iface(b"Hello from sock2", addr1, 5).unwrap();
+    sock2.send_to_iface(b"Hello from sock2", addr1, 0).unwrap();
     let mut buf = [0u8; 1024];
     let (buf, addr, iface) = sock1.recv_from_iface(&mut buf).unwrap();
     let msg = String::from_utf8_lossy(buf);
