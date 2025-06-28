@@ -2,7 +2,7 @@ use std::ffi::c_int;
 use std::{io, mem};
 use std::io::{IoSlice, IoSliceMut, Result};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use socket2::{Domain, SockAddr, Socket, Type};
+use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 #[cfg(unix)]
 use nix::sys::socket;
 
@@ -236,7 +236,7 @@ mod win_helper {
     }
 
     impl WSAStructs {
-        pub fn receive(&self, data_buffer: &mut [u8], socket: &Socket) -> io::Result<(usize, SocketAddrV4, c_int)> {
+        pub fn receive(&self, data_buffer: &mut [u8], socket: &Socket) -> io::Result<(usize, SocketAddrV4, u32)> {
             let mut data = WSABUF {
                 buf: data_buffer.as_mut_ptr() as *mut i8,
                 len: data_buffer.len() as u32,
@@ -306,11 +306,10 @@ mod win_helper {
                 };
             };
 
-            Ok((read_bytes as usize, origin_address, index as c_int))
+            Ok((read_bytes as usize, origin_address, index))
         }
 
-        pub fn send(&self, buf: &[u8], dst_addr: SocketAddrV4, iface_index: c_int, socket: &Socket) -> io::Result<usize> {
-            let iface_index = iface_index as u32;
+        pub fn send(&self, buf: &[u8], dst_addr: SocketAddrV4, iface_index: u32, socket: &Socket) -> io::Result<usize> {
             let pkt_info = self.interfaces.get(&iface_index).map(|address| IN_PKTINFO {
                 ipi_addr: IN_ADDR {
                     S_un: to_s_addr(address),
@@ -395,7 +394,7 @@ impl MultiInterfaceSocket {
         Self::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port))
     }
     pub fn bind(addr: SocketAddrV4) -> Result<Self> {
-        let socket = Socket::new(Domain::IPV4, Type::DGRAM, None)?;
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
         socket.bind(&addr.into())?;
 
         #[cfg(unix)]
@@ -445,7 +444,7 @@ impl MultiInterfaceSocket {
 
     /// `recvfrom`, but with interface index.
     #[cfg(unix)]
-    pub fn recv_from_iface<'a>(&self, buf: &'a mut [u8]) -> Result<(&'a mut [u8], SocketAddrV4, c_int)> {
+    pub fn recv_from_iface<'a>(&self, buf: &'a mut [u8]) -> Result<(&'a mut [u8], SocketAddrV4, u32)> {
         use std::os::fd::{AsFd, AsRawFd};
         
         let mut control_buffer = nix::cmsg_space!(nix::libc::in_pktinfo);
@@ -474,12 +473,12 @@ impl MultiInterfaceSocket {
 
     /// `recvfrom`, but with interface index.
     #[cfg(windows)]
-    pub fn recv_from_iface<'a>(&self, buf: &'a mut [u8]) -> Result<(&'a mut [u8], SocketAddrV4, c_int)> {
+    pub fn recv_from_iface<'a>(&self, buf: &'a mut [u8]) -> Result<(&'a mut [u8], SocketAddrV4, u32)> {
         let (sz, addr, iface) = self.wsa_structs.receive(buf, &self.socket)?;
         Ok((&mut buf[..sz], addr, iface))
     }
     #[cfg(unix)]
-    pub fn send_to_iface<'a>(&self, buf: &'a [u8], addr: SocketAddrV4, iface_index: c_int) -> Result<usize> {
+    pub fn send_to_iface<'a>(&self, buf: &'a [u8], addr: SocketAddrV4, iface_index: u32) -> Result<usize> {
         use std::os::fd::{AsFd, AsRawFd};
         
         let bufs = [IoSlice::new(buf)];
@@ -497,12 +496,12 @@ impl MultiInterfaceSocket {
     }
 
     #[cfg(windows)]
-    pub fn send_to_iface<'a>(&self, buf: &'a [u8], addr: SocketAddrV4, iface_index: c_int) -> Result<usize> {
+    pub fn send_to_iface<'a>(&self, buf: &'a [u8], addr: SocketAddrV4, iface_index: u32) -> Result<usize> {
         self.wsa_structs.send(buf, addr, iface_index, &self.socket)
     }
 }
 
-pub fn all_ipv4_interfaces() -> io::Result<Vec<Ipv4Addr>> {
+pub fn all_ipv4_interfaces() -> Result<Vec<Ipv4Addr>> {
     let interfaces = if_addrs::get_if_addrs()?
         .into_iter()
         .filter_map(|i| match i.ip() {

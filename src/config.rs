@@ -2,10 +2,11 @@ use std::borrow::Cow;
 use std::iter::once;
 use std::net::IpAddr;
 use std::ops::Range;
+use std::time::Duration;
 
-pub struct RepriseBuilder {
-    
-}
+const DEFAULT_ANNOUNCE_INTERVAL: Duration = Duration::from_secs(3);
+const DEFAULT_EXTENDED_ANNOUNCEMENT_EFFECT_DUR: Duration = Duration::from_secs(30);
+const DEFAULT_EXTEND_REQUEST_INTERVAL: Duration = Duration::from_secs(12);
 
 #[derive(Clone, Debug)]
 pub struct MulticastDiscoveryConfig {
@@ -14,6 +15,10 @@ pub struct MulticastDiscoveryConfig {
     pub multicast_backup_ports: Vec<u16>,
     pub service_name: Cow<'static, str>,
     pub central_discovery_addr: Option<IpAddr>,
+
+    pub announce_interval: Duration,
+    pub extended_announcement_effect_dur: Duration,
+    pub extend_request_interval: Duration,
     
     pub enable_announce: bool
 }
@@ -30,6 +35,10 @@ impl MulticastDiscoveryConfig {
             service_name,
             central_discovery_addr: None,
             enable_announce: true,
+            
+            announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
+            extended_announcement_effect_dur: DEFAULT_EXTENDED_ANNOUNCEMENT_EFFECT_DUR,
+            extend_request_interval: DEFAULT_EXTEND_REQUEST_INTERVAL,
         }
     }
     
@@ -49,6 +58,21 @@ impl MulticastDiscoveryConfig {
     
     pub fn with_disabled_announce(mut self) -> Self {
         self.enable_announce = false;
+        self
+    }
+    
+    pub fn with_announce_interval(mut self, announce_interval: Duration) -> Self {
+        self.announce_interval = announce_interval;
+        self
+    }
+    
+    pub fn with_extended_announcement_effect_dur(mut self, effect_duration: Duration) -> Self {
+        self.extended_announcement_effect_dur = effect_duration;
+        self
+    }
+    
+    pub fn with_extend_request_interval(mut self, extend_request_interval: Duration) -> Self {
+        self.extend_request_interval = extend_request_interval;
         self
     }
 }
