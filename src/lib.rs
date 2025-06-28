@@ -259,6 +259,11 @@ impl MulticastDiscoverySocket {
                 }
                 interface_cnt += 1;
             }
+
+            if interface_cnt == 0 {
+                warn!("No available interface found!");
+                thread::sleep(Duration::from_millis(500));
+            }
         }
 
         // 3. Handle incoming packets
@@ -320,33 +325,30 @@ impl MulticastDiscoverySocket {
                 }
             }
         }
-
-        if interface_cnt == 0 {
-            warn!("No available interface found!");
-            thread::sleep(Duration::from_millis(500));
-        }
     }
 }
 impl Drop for MulticastDiscoverySocket {
     fn drop(&mut self) {
         // Announce disconnection
-        for (interface, state) in self.interface_tracker.iter_mut() {
-            let Some(index) = interface.index else {
-                continue;
-            };
-            // Skip for now
-            if interface.ip().is_loopback() {
-                continue;
-            }
+        if self.announce_enabled {
+            for (interface, state) in self.interface_tracker.iter_mut() {
+                let Some(index) = interface.index else {
+                    continue;
+                };
+                // Skip for now
+                if interface.ip().is_loopback() {
+                    continue;
+                }
 
-            let msg = DiscoveryMessage::Announce {
-                discover_id: self.discover_id,
-                local_port: self.local_port,
-                disconnected: true
-            }.gen_message();
-            for port in self.cfg.iter_ports() {
-                let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port),index);
-                handle_err(res, "announce disconnected message", interface);
+                let msg = DiscoveryMessage::Announce {
+                    discover_id: self.discover_id,
+                    local_port: self.local_port,
+                    disconnected: true
+                }.gen_message();
+                for port in self.cfg.iter_ports() {
+                    let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port),index);
+                    handle_err(res, "announce disconnected message", interface);
+                }
             }
         }
     }
