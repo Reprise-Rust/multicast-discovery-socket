@@ -26,16 +26,16 @@ pub struct PerInterfaceState {
 
 impl PerInterfaceState {
     pub fn extended_announcements_enabled(&self, now: Instant, extended_announcement_request_dur: Duration) -> bool {
-        self.extended_announcements_request_tm.is_none_or(|tm| now - tm < extended_announcement_request_dur)
+        self.extended_announcements_request_tm.is_none_or(|tm| now - tm > extended_announcement_request_dur)
     }
     pub fn should_announce(&self, now: Instant, announcement_interval: Duration) -> bool {
-        self.last_announce_tm.is_none_or(|tm| now - tm < announcement_interval)
+        self.last_announce_tm.is_none_or(|tm| now - tm > announcement_interval)
     }
     pub fn should_extended_announce(&self, now: Instant, extended_announcement_request_dur: Duration, announcement_interval: Duration) -> bool {
         self.extended_announcements_enabled(now, extended_announcement_request_dur) && self.should_announce(now, announcement_interval)
     }
     pub fn should_send_extend_request(&self, now: Instant, extend_tm_request_interval: Duration) -> bool {
-        self.extend_request_send_tm.is_none_or(|tm| now - tm < extend_tm_request_interval)
+        self.extend_request_send_tm.is_none_or(|tm| now - tm > extend_tm_request_interval)
     }
 }
 

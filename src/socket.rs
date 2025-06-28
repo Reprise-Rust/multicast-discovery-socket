@@ -2,6 +2,7 @@ use std::ffi::c_int;
 use std::{io, mem};
 use std::io::{IoSlice, IoSliceMut, Result};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::os::fd::AsFd;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 #[cfg(unix)]
 use nix::sys::socket;
@@ -406,6 +407,7 @@ impl MultiInterfaceSocket {
 
         Ok(Self {
             socket,
+            #[cfg(windows)]
             wsa_structs
         })
     }
@@ -464,7 +466,7 @@ impl MultiInterfaceSocket {
         let mut index = 0;
         for cmsg in message.cmsgs()? {
             if let socket::ControlMessageOwned::Ipv4PacketInfo(pkt_info) = cmsg {
-                index = pkt_info.ipi_ifindex;
+                index = pkt_info.ipi_ifindex as u32;
                 break;
             }
         }
@@ -483,7 +485,7 @@ impl MultiInterfaceSocket {
         
         let bufs = [IoSlice::new(buf)];
         let mut pkt_info: nix::libc::in_pktinfo = unsafe { mem::zeroed() };
-        pkt_info.ipi_ifindex = iface_index;
+        pkt_info.ipi_ifindex = iface_index as i32;
 
         socket::sendmsg(
             self.socket.as_raw_fd(),

@@ -13,8 +13,8 @@ fn main() {
     let mut socket = MulticastDiscoverySocket::new(&cfg, 12345).unwrap();
     
     loop {
-        thread::sleep(Duration::from_secs(1));
         // socket.discover();
+        
         socket.poll(|msg| {
             match msg {
                 PollResult::DiscoveredClient {
@@ -29,6 +29,7 @@ fn main() {
                     println!("Disconnected client: {} - {:x}", addr, discover_id);
                 }
             }
-        })
+        });
+        thread::yield_now();
     }
 }
