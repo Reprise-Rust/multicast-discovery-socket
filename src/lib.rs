@@ -1,12 +1,10 @@
-use std::io;
+use std::{io, thread};
 use std::iter::once;
 use std::net::{IpAddr, SocketAddrV4};
 use std::ops::Deref;
-use std::sync::WaitTimeoutResult;
-use std::task::Poll;
 use std::time::{Duration, Instant};
 use if_addrs::Interface;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, warn};
 use crate::config::MulticastDiscoveryConfig;
 use crate::interfaces::InterfaceTracker;
 use crate::protocol::DiscoveryMessage;
@@ -22,20 +20,27 @@ pub struct PerInterfaceState {
     last_announce_tm: Option<Instant>,
     extended_announcements_request_tm: Option<Instant>,
     extend_request_send_tm: Option<Instant>,
+
+    extended_announce_enabled: bool,
 }
 
 impl PerInterfaceState {
-    pub fn extended_announcements_enabled(&self, now: Instant, extended_announcement_request_dur: Duration) -> bool {
-        self.extended_announcements_request_tm.is_none_or(|tm| now - tm > extended_announcement_request_dur)
+    pub fn should_announce(&self, now: Instant, cfg: &MulticastDiscoveryConfig) -> bool {
+        self.last_announce_tm.is_none_or(|tm| now - tm > cfg.announce_interval)
     }
-    pub fn should_announce(&self, now: Instant, announcement_interval: Duration) -> bool {
-        self.last_announce_tm.is_none_or(|tm| now - tm > announcement_interval)
+    pub fn should_send_extend_request(&self, now: Instant, cfg: &MulticastDiscoveryConfig) -> bool {
+        self.extend_request_send_tm.is_none_or(|tm| now - tm > cfg.extend_request_interval)
     }
-    pub fn should_extended_announce(&self, now: Instant, extended_announcement_request_dur: Duration, announcement_interval: Duration) -> bool {
-        self.extended_announcements_enabled(now, extended_announcement_request_dur) && self.should_announce(now, announcement_interval)
+    pub fn should_extended_announce(&self, now: Instant, cfg: &MulticastDiscoveryConfig) -> bool {
+        self.extended_announcements_enabled(now, cfg) && self.should_announce(now, cfg)
     }
-    pub fn should_send_extend_request(&self, now: Instant, extend_tm_request_interval: Duration) -> bool {
-        self.extend_request_send_tm.is_none_or(|tm| now - tm > extend_tm_request_interval)
+
+    pub fn extended_announcements_enabled(&self, now: Instant, cfg: &MulticastDiscoveryConfig) -> bool {
+        self.extended_announcements_request_tm.is_some_and(|tm| now - tm < cfg.extended_announcement_effect_dur)
+    }
+    pub fn got_extend_announce_req(&mut self, now: Instant) {
+        self.extended_announcements_request_tm = Some(now);
+        self.extended_announce_enabled = true;
     }
 }
 
@@ -47,6 +52,7 @@ pub struct MulticastDiscoverySocket {
     interface_tracker: InterfaceTracker<PerInterfaceState>,
 
     announce_enabled: bool,
+    discoverable: bool,
     /// Announce payload: service port
     local_port: u16,
 }
@@ -115,7 +121,7 @@ impl MulticastDiscoverySocket {
                         let failed_ports = cfg.iter_ports().filter(|p| *p != 0);
                         warn!("Unable to start on the main or backup ports ({:?})!", &failed_ports.collect::<Vec<_>>());
                         if !central_discovery_enabled {
-                            warn!("You will be unable to discover other clients!");
+                            warn!("You may face issues with discovering");
                         }
                         else {
                             warn!("You will be able to discover clients only when your network is online!");
@@ -135,6 +141,7 @@ impl MulticastDiscoverySocket {
                         running_port,
 
                         announce_enabled: cfg.enable_announce,
+                        discoverable: cfg.enable_announce,
                     })
                 }
                 Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
@@ -160,9 +167,13 @@ impl MulticastDiscoverySocket {
         self.running_port
     }
 
-    /// Setting this to `false` will disable both announcements and handling discovery packets
+    /// Setting this to `false` will disable periodic background announcements during `poll()`
     pub fn set_announce_en(&mut self, en: bool) {
         self.announce_enabled = en;
+    }
+    /// Setting this to `false` will disable answers to `Discover` messages
+    pub fn set_discoverable(&mut self, enable: bool) {
+        self.discoverable = enable;
     }
 
     /// Manually discover all clients on main or backup ports
@@ -210,12 +221,12 @@ impl MulticastDiscoverySocket {
 
             // 1. Handle announcements
             let now = Instant::now();
-            let should_announce = state.should_announce(now, self.cfg.announce_interval);
-            let should_extended_announce = state.should_extended_announce(now, self.cfg.extended_announcement_effect_dur, self.cfg.announce_interval);
-            let should_send_extend_request = state.should_send_extend_request(now, self.cfg.extend_request_interval);
+            let should_announce = state.should_announce(now, &self.cfg);
+            let should_extended_announce = state.should_extended_announce(now, &self.cfg);
+            let should_send_extend_request = state.should_send_extend_request(now, &self.cfg);
             if should_announce {
                 state.last_announce_tm = Some(now);
-                
+
                 let msg = DiscoveryMessage::Announce {
                     local_port: self.local_port, 
                     discover_id: self.discover_id, 
@@ -231,9 +242,13 @@ impl MulticastDiscoverySocket {
                     let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, self.cfg.multicast_port), interface_index);
                     handle_err(res, "send normal announce", interface);
                 }
+                if state.extended_announce_enabled && !state.extended_announcements_enabled(now, &self.cfg) {
+                    state.extended_announce_enabled = false;
+                    info!("No longer sending extended announce on interface [{}] - {}", interface.ip(), interface.name);
+                }
             }
             // 2. Sending extend requests
-            if !matches!(self.running_port, MulticastRunningPort::Backup(_)) && should_send_extend_request {
+            if matches!(self.running_port, MulticastRunningPort::Backup(_)) && should_send_extend_request {
                 state.extend_request_send_tm = Some(now);
                 let msg = DiscoveryMessage::ExtendAnnouncements.gen_message();
                 for port in self.cfg.iter_ports() {
@@ -290,7 +305,11 @@ impl MulticastDiscoverySocket {
                 Some(DiscoveryMessage::ExtendAnnouncements) => {
                     for (interface, state) in self.interface_tracker.iter_mut() {
                         if interface.index == Some(index) {
-                            state.extend_request_send_tm = Some(Instant::now());
+                            let now = Instant::now();
+                            if !state.extended_announcements_enabled(now, &self.cfg) {
+                                info!("Enabling extended announcements on interface [{}] - {}", interface.ip(), interface.name);
+                            }
+                            state.got_extend_announce_req(now);
                         }
                     }
                 }
@@ -299,9 +318,10 @@ impl MulticastDiscoverySocket {
                 }
             }
         }
-        
+
         if interface_cnt == 0 {
             warn!("No available interface found!");
+            thread::sleep(Duration::from_millis(500));
         }
     }
 }
@@ -316,14 +336,15 @@ impl Drop for MulticastDiscoverySocket {
             if interface.ip().is_loopback() {
                 continue;
             }
-            
+
             let msg = DiscoveryMessage::Announce {
                 discover_id: self.discover_id,
                 local_port: self.local_port,
                 disconnected: true
             }.gen_message();
             for port in self.cfg.iter_ports() {
-                self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port),index);
+                let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port),index);
+                handle_err(res, "announce disconnected message", interface);
             }
         }
     }

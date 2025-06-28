@@ -15,8 +15,8 @@ fn main() {
     info!("Socket 1 bound to: {}", addr1);
     info!("Socket 2 bound to: {}", addr2);
 
-    // Send to the default system interface
-    sock2.send_to_iface(b"Hello from sock2", addr1, 0).unwrap();
+    // 1 usually means loopback interface
+    sock2.send_to_iface(b"Hello from sock2", addr1, 1).unwrap();
     let mut buf = [0u8; 1024];
     let (buf, addr, iface) = sock1.recv_from_iface(&mut buf).unwrap();
     let msg = String::from_utf8_lossy(buf);
