@@ -53,8 +53,8 @@ pub struct MulticastDiscoverySocket {
 
     announce_enabled: bool,
     discover_replies: bool,
-    /// Announce payload: service port
-    local_port: u16,
+    /// Announce payload: service port. If not set, announcements are disabled
+    local_port: Option<u16>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -87,8 +87,11 @@ pub enum PollResult {
 }
 
 impl MulticastDiscoverySocket {
-    // Create new socket for multicast discovery. Announcements are enabled by default
-    pub fn new(cfg: &MulticastDiscoveryConfig, local_port: u16) -> io::Result<Self> {
+    pub fn new_discover_only(cfg: &MulticastDiscoveryConfig) -> io::Result<Self> {
+        Self::new(cfg, None)
+    }
+    /// Create new socket for multicast discovery.
+    pub fn new(cfg: &MulticastDiscoveryConfig, local_port: Option<u16>) -> io::Result<Self> {
         let central_discovery_enabled = cfg.central_discovery_addr.is_some();
         let mut is_primary = true;
         
@@ -168,15 +171,18 @@ impl MulticastDiscoverySocket {
     }
 
     /// Setting this to `false` will disable periodic background announcements during `poll()`
+    /// Announcements are performed by periodic sending message `Announce` (and `ExtendAnnounce`)
     pub fn set_announce_en(&mut self, en: bool) {
         self.announce_enabled = en;
     }
-    /// Setting this to `false` will disable automatic replies to `Discover` messages
+
+    /// Setting this to `false` will disable automatic replies to `Discovery` messages
     pub fn set_discover_replies_en(&mut self, enable: bool) {
         self.discover_replies = enable;
     }
 
-    /// Manually discover all clients on main or backup ports
+    /// Manually discover all clients on main or backup ports (using `Discovery` message).
+    /// Results can be collected by running `poll`.
     pub fn discover(&mut self) {
         info!("Multicast discovery: running manual discovery...");
         let msg = DiscoveryMessage::Discovery.gen_message();
@@ -197,7 +203,13 @@ impl MulticastDiscoverySocket {
             }
         }
     }
-    
+
+    /// Run `poll` periodically to handle internal discovery mechanisms:
+    /// - `Announce` messages periodic sending
+    /// - `ExtendAnnounce` messages periodic sending (if running on backup port)
+    /// - handling incoming messages (and returning discovery results via `discover_msg` callback)
+    ///
+    /// It is recommended to call this function in a loop with ~100ms sleep
     pub fn poll(&mut self, mut discover_msg: impl FnMut(PollResult)) {
         // 0. poll interface updates
         self.interface_tracker.poll_updates(|new_ip| {
@@ -210,7 +222,7 @@ impl MulticastDiscoverySocket {
         });
     
         let mut interface_cnt = 0;
-        if self.announce_enabled {
+        if self.announce_enabled && self.local_port.is_some() {
             for (interface, state) in self.interface_tracker.iter_mut() {
                 let Some(interface_index) = interface.index else {
                     continue;
@@ -229,7 +241,7 @@ impl MulticastDiscoverySocket {
                     state.last_announce_tm = Some(now);
 
                     let msg = DiscoveryMessage::Announce {
-                        local_port: self.local_port,
+                        local_port: self.local_port.unwrap_or_default(),
                         discover_id: self.discover_id,
                         disconnected: false
                     }.gen_message();
@@ -277,11 +289,11 @@ impl MulticastDiscoverySocket {
 
             match DiscoveryMessage::try_parse(&data) {
                 Some(DiscoveryMessage::Discovery) => {
-                    if self.discover_replies {
+                    if self.discover_replies && self.local_port.is_some() {
                         let announce = DiscoveryMessage::Announce {
                             disconnected: false,
                             discover_id: self.discover_id,
-                            local_port: self.local_port,
+                            local_port: self.local_port.unwrap_or_default(),
                         }.gen_message();
                         if let Err(e) = self.socket.send_to_iface(&announce, addr, index) {
                             warn!("Failed to answer to discovery packet: {:?}", e);
@@ -330,7 +342,7 @@ impl MulticastDiscoverySocket {
 impl Drop for MulticastDiscoverySocket {
     fn drop(&mut self) {
         // Announce disconnection
-        if self.announce_enabled {
+        if self.announce_enabled && self.local_port.is_some() {
             for (interface, state) in self.interface_tracker.iter_mut() {
                 let Some(index) = interface.index else {
                     continue;
@@ -342,7 +354,7 @@ impl Drop for MulticastDiscoverySocket {
 
                 let msg = DiscoveryMessage::Announce {
                     discover_id: self.discover_id,
-                    local_port: self.local_port,
+                    local_port: self.local_port.unwrap_or_default(),
                     disconnected: true
                 }.gen_message();
                 for port in self.cfg.iter_ports() {

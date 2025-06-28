@@ -15,10 +15,9 @@ fn main() {
     }).unwrap();
 
     let cfg = MulticastDiscoveryConfig::new(Ipv4Addr::new(239, 37, 37, 37), "multicast-example".into())
-        .with_disabled_announce()
         .with_multicast_port(37337)
         .with_backup_ports(62337..62339);
-    let mut socket = MulticastDiscoverySocket::new(&cfg, 12345).unwrap();
+    let mut socket = MulticastDiscoverySocket::new(&cfg, None).unwrap();
 
     let mut last_send_tm: Option<Instant> = None;
     loop {
