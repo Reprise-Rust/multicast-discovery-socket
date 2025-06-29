@@ -1,8 +1,7 @@
 use std::ffi::c_int;
 use std::{io, mem};
-use std::io::{IoSlice, IoSliceMut, Result};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::os::fd::AsFd;
+use std::io::{Error, ErrorKind, IoSlice, IoSliceMut, Result};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 #[cfg(unix)]
 use nix::sys::socket;
@@ -20,13 +19,11 @@ fn nix_to_io_error(e: nix::Error) -> io::Error {
 
 #[cfg(windows)]
 mod win_helper {
-    use std::ffi::{c_char, c_int, CStr};
+    use std::ffi::{c_char, c_int};
     use std::{io, mem, ptr};
-    use std::collections::{HashMap, HashSet};
-    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+    use std::net::{Ipv4Addr, SocketAddrV4};
     use std::os::windows::io::RawSocket;
     use std::os::windows::prelude::AsRawSocket;
-    use std::str::FromStr;
     use socket2::Socket;
 
     use winapi::shared::inaddr::*;
@@ -148,7 +145,6 @@ mod win_helper {
         }
     }
     pub struct WSAStructs {
-        interfaces: HashMap<u32, Ipv4Addr>,
         wsarecvmsg: WSARecvMsgExtension,
         wsasendmsg: WSASendMsgExtension,
     }
@@ -158,53 +154,6 @@ mod win_helper {
         unsafe { setsockopt(socket, IPPROTO_IP, IP_PKTINFO, payload as c_int) }
     }
 
-    fn build_address_table(interfaces: HashSet<Ipv4Addr>) -> io::Result<HashMap<u32, Ipv4Addr>> {
-        let mut size = 0u32;
-        let r = unsafe { winapi::um::iphlpapi::GetAdaptersInfo(ptr::null_mut(), &mut size) };
-        if r != ERROR_BUFFER_OVERFLOW {
-            return Err(io::Error::last_os_error());
-        }
-
-        let mut buffer = vec![0; mem::size_of::<iptypes::IP_ADAPTER_INFO>() * (size as usize)];
-        let mut adapter_info = buffer.as_mut_ptr() as iptypes::PIP_ADAPTER_INFO;
-        let mut size = buffer.len() as u32;
-        let r = unsafe { winapi::um::iphlpapi::GetAdaptersInfo(adapter_info, &mut size) };
-
-        if r != 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        let mut table = HashMap::with_capacity(interfaces.len());
-        loop {
-            if adapter_info.is_null() {
-                break;
-            }
-
-            let current: iptypes::IP_ADAPTER_INFO = unsafe { *adapter_info };
-            let ip_address =
-                unsafe { CStr::from_ptr(current.IpAddressList.IpAddress.String.as_ptr()) }.to_str();
-            let ip_address = match ip_address {
-                Ok(i) => Ipv4Addr::from_str(&i),
-                _ => {
-                    continue;
-                }
-            };
-            let ip_address = match ip_address {
-                Ok(i) => i,
-                _ => {
-                    continue;
-                }
-            };
-
-            if interfaces.contains(&ip_address) {
-                table.insert(current.Index, ip_address);
-            }
-
-            adapter_info = current.Next;
-        }
-
-        Ok(table)
-    }
     fn to_s_addr(addr: &Ipv4Addr) -> in_addr_S_un {
         let octets = addr.octets();
         let res = u32::from_ne_bytes(octets);
@@ -226,13 +175,9 @@ mod win_helper {
         let wsarecvmsg: WSARecvMsgExtension = locate_wsarecvmsg(socket.as_raw_socket())?;
         let wsasendmsg: WSASendMsgExtension = locate_wsasendmsg(socket.as_raw_socket())?;
 
-        let input_interfaces = all_ipv4_interfaces()?.into_iter().collect();
-        let interfaces = build_address_table(input_interfaces)?;
-
         Ok(WSAStructs {
             wsarecvmsg,
-            wsasendmsg,
-            interfaces
+            wsasendmsg
         })
     }
 
@@ -310,13 +255,13 @@ mod win_helper {
             Ok((read_bytes as usize, origin_address, index))
         }
 
-        pub fn send(&self, buf: &[u8], dst_addr: SocketAddrV4, iface_index: u32, socket: &Socket) -> io::Result<usize> {
-            let pkt_info = self.interfaces.get(&iface_index).map(|address| IN_PKTINFO {
+        pub fn send(&self, buf: &[u8], dst_addr: SocketAddrV4, iface_index: u32, source_if_addr: Ipv4Addr, socket: &Socket) -> io::Result<usize> {
+            let pkt_info = IN_PKTINFO {
                 ipi_addr: IN_ADDR {
-                    S_un: to_s_addr(address),
+                    S_un: to_s_addr(&source_if_addr),
                 },
                 ipi_ifindex: iface_index,
-            });
+            };
 
             let mut data = WSABUF {
                 buf: buf.as_ptr() as *mut _,
@@ -324,34 +269,26 @@ mod win_helper {
             };
 
             let mut control_buffer = [0; CONTROL_PKTINFO_BUFFER_SIZE];
-            let mut empty_buf = [];
-            let control = if let Some(pkt_info) = pkt_info {
-                let hdr = CMSGHDR {
-                    cmsg_len: CONTROL_PKTINFO_BUFFER_SIZE,
-                    cmsg_level: IPPROTO_IP,
-                    cmsg_type: IP_PKTINFO,
-                };
-                unsafe {
-                    ptr::copy(
-                        &hdr as *const _ as *const _,
-                        control_buffer.as_mut_ptr(),
-                        CMSG_HEADER_SIZE,
-                    );
-                    ptr::copy(
-                        &pkt_info as *const _ as *const _,
-                        control_buffer.as_mut_ptr().add(CMSG_HEADER_SIZE),
-                        PKTINFO_DATA_SIZE,
-                    )
-                };
-                WSABUF {
-                    buf: control_buffer.as_mut_ptr(),
-                    len: control_buffer.len() as _,
-                }
-            } else {
-                WSABUF {
-                    buf: empty_buf.as_mut_ptr(),
-                    len: 0,
-                }
+            let hdr = CMSGHDR {
+                cmsg_len: CONTROL_PKTINFO_BUFFER_SIZE,
+                cmsg_level: IPPROTO_IP,
+                cmsg_type: IP_PKTINFO,
+            };
+            unsafe {
+                ptr::copy(
+                    &hdr as *const _ as *const _,
+                    control_buffer.as_mut_ptr(),
+                    CMSG_HEADER_SIZE,
+                );
+                ptr::copy(
+                    &pkt_info as *const _ as *const _,
+                    control_buffer.as_mut_ptr().add(CMSG_HEADER_SIZE),
+                    PKTINFO_DATA_SIZE,
+                )
+            };
+            let control = WSABUF {
+                buf: control_buffer.as_mut_ptr(),
+                len: control_buffer.len() as _,
             };
 
             // Set custom port
@@ -398,6 +335,8 @@ impl MultiInterfaceSocket {
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
         socket.bind(&addr.into())?;
 
+        #[cfg(unix)]
+        use std::os::fd::AsFd;
         #[cfg(unix)]
         socket::setsockopt(&socket.as_fd(), socket::sockopt::Ipv4PacketInfo, &true)
             .map_err(nix_to_io_error)?;
@@ -480,7 +419,7 @@ impl MultiInterfaceSocket {
         Ok((&mut buf[..sz], addr, iface))
     }
     #[cfg(unix)]
-    pub fn send_to_iface<'a>(&self, buf: &'a [u8], addr: SocketAddrV4, iface_index: u32) -> Result<usize> {
+    pub fn send_to_iface<'a>(&self, buf: &'a [u8], addr: SocketAddrV4, iface_index: u32, _source_if_addr: IpAddr) -> Result<usize> {
         use std::os::fd::{AsFd, AsRawFd};
         
         let bufs = [IoSlice::new(buf)];
@@ -498,8 +437,13 @@ impl MultiInterfaceSocket {
     }
 
     #[cfg(windows)]
-    pub fn send_to_iface<'a>(&self, buf: &'a [u8], addr: SocketAddrV4, iface_index: u32) -> Result<usize> {
-        self.wsa_structs.send(buf, addr, iface_index, &self.socket)
+    pub fn send_to_iface<'a>(&self, buf: &'a [u8], addr: SocketAddrV4, iface_index: u32, source_if_addr: IpAddr) -> Result<usize> {
+        if let IpAddr::V4(source_ip_addr) = source_if_addr {
+            self.wsa_structs.send(buf, addr, iface_index, source_ip_addr, &self.socket)
+        }
+        else {
+            Err(Error::new(ErrorKind::Other, "Not an IPv4 address"))
+        }
     }
 }
 

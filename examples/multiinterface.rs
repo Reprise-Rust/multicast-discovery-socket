@@ -16,7 +16,7 @@ fn main() {
     info!("Socket 2 bound to: {}", addr2);
 
     // 1 usually means loopback interface
-    sock2.send_to_iface(b"Hello from sock2", addr1, 1).unwrap();
+    sock2.send_to_iface(b"Hello from sock2", addr1, 1, Ipv4Addr::new(127, 0, 0, 1).into()).unwrap();
     let mut buf = [0u8; 1024];
     let (buf, addr, iface) = sock1.recv_from_iface(&mut buf).unwrap();
     let msg = String::from_utf8_lossy(buf);
@@ -24,7 +24,7 @@ fn main() {
     info!("From address: {:?}, on interface: {}", addr, iface);
 
     // Reply to the same interface we got the message from
-    sock1.send_to_iface(b"Hello from sock1", addr2, iface).unwrap();
+    sock1.send_to_iface(b"Hello from sock1", addr2, iface, Ipv4Addr::new(127, 0, 0, 1).into()).unwrap();
     let mut buf = [0u8; 1024];
     let (buf, addr, iface) = sock2.recv_from_iface(&mut buf).unwrap();
     let msg = String::from_utf8_lossy(buf);

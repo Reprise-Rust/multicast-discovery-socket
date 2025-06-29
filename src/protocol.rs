@@ -16,7 +16,7 @@ impl DiscoveryMessageKind {
     fn header(&self) -> &'static [u8] {
         match self {
             DiscoveryMessageKind::Discovery => b"discovery",
-            DiscoveryMessageKind::Announce { .. } => b"announce",
+            DiscoveryMessageKind::Announce => b"announce",
             DiscoveryMessageKind::ExtendAnnouncements => b"extend-announcements",
         }
     }

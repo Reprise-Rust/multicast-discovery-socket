@@ -253,7 +253,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
             }
 
             for port in self.cfg.iter_ports() {
-                if let Err(e) = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), index) {
+                if let Err(e) = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), index, interface.addr.ip()) {
                     warn!("Failed to send discovery message on interface [{}] - {}: {}", interface.ip(), interface.name, e);
                 } else {
                     debug!("Sent discovery message to port {} on interface [{}] - {}", port, interface.ip(), interface.name);
@@ -306,12 +306,12 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                     }.gen_message();
                     if should_extended_announce {
                         for port in self.cfg.iter_ports() {
-                            let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), interface_index);
+                            let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), interface_index, interface.addr.ip());
                             handle_err(res, "send extended announce", interface);
                         }
                     }
                     else {
-                        let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, self.cfg.multicast_port), interface_index);
+                        let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, self.cfg.multicast_port), interface_index, interface.addr.ip());
                         handle_err(res, "send normal announce", interface);
                     }
                     if state.extended_announce_enabled && !state.extended_announcements_enabled(now, &self.cfg) {
@@ -324,7 +324,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                     state.extend_request_send_tm = Some(now);
                     let msg = DiscoveryMessage::ExtendAnnouncements::<D>.gen_message();
                     for port in self.cfg.iter_ports() {
-                        let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), interface_index);
+                        let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), interface_index, interface.addr.ip());
                         handle_err(res, "send extended announce request", interface);
                     }
                 }
@@ -355,10 +355,15 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                             service_port: self.service_port.unwrap_or_default(),
                             adv_data: Cow::Borrowed(&self.advertisement_data)
                         }.gen_message();
-                        if let Err(e) = self.socket.send_to_iface(&announce, addr, index) {
-                            warn!("Failed to answer to discovery packet: {:?}", e);
+                        let source_addr = self.interface_tracker.iter_mapping().find(|(i, a)| *i == index);
+                        if let Some((_, a)) = source_addr {
+                            if let Err(e) = self.socket.send_to_iface(&announce, addr, index, a.into()) {
+                                warn!("Failed to answer to discovery packet: {:?}", e);
+                            }
                         }
-
+                        else {
+                            warn!("Failed to answer discovery packet: interface address not found for index!");
+                        }
                     }
                 }
                 Some(DiscoveryMessage::Announce { service_port, discover_id, disconnected, adv_data}) => {
@@ -420,7 +425,7 @@ impl<D: AdvertisementData> Drop for MulticastDiscoverySocket<D> {
                     adv_data: Cow::Borrowed(&self.advertisement_data)
                 }.gen_message();
                 for port in self.cfg.iter_ports() {
-                    let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port),index);
+                    let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port),index, interface.addr.ip());
                     handle_err(res, "announce disconnected message", interface);
                 }
             }
