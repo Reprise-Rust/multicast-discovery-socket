@@ -20,10 +20,9 @@ fn main() {
 
     let name = format!("Client {}", rand::random::<u8>());
     info!("Running as {name}");
-    let mut socket = MulticastDiscoverySocket::new(&cfg, Some(12345), name).unwrap();
+    let mut socket = MulticastDiscoverySocket::new_with_service(&cfg, 12345, name).unwrap();
     
     loop {
-        // socket.discover();
         if EXIT.load(std::sync::atomic::Ordering::Relaxed) {
             break;
         }
