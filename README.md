@@ -1,8 +1,10 @@
 # Multicast discovery socket
 
 [![crate][crate-image]][crate-link]
+[![Docs][docs-image]][docs-link]
 ![Apache2/MIT licensed][license-image]
-![MSRV][rustc-image]
+
+[Documentation][docs-link]
 
 Integrate local client discovery into your rust application with ease!
 
@@ -72,3 +74,12 @@ at your option.
 Support for multiple interfaces is hard to be implemented in cross-platform way.  
 Windows and Linux support is implemented mostly relying on code from [multicast-socket](https://crates.io/crates/multicast-socket)  
 Thanks to [Bruno Tavares](https://github.com/bltavares) for his work and research on multicast support!
+
+
+[//]: # (badges)
+
+[crate-image]: https://img.shields.io/crates/v/multicast-discovery-socket?logo=rust
+[crate-link]: https://crates.io/crates/multicast-discovery-socket
+[docs-image]: https://docs.rs/multicast-discovery-socket/badge.svg
+[docs-link]: https://docs.rs/multicast-discovery-socket/
+[license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
