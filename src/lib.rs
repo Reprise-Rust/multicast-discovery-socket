@@ -1,4 +1,5 @@
-use std::{io, thread};
+use std::{io, mem, thread};
+use std::borrow::Cow;
 use std::iter::once;
 use std::net::{IpAddr, SocketAddrV4};
 use std::ops::Deref;
@@ -44,7 +45,53 @@ impl PerInterfaceState {
     }
 }
 
-pub struct MulticastDiscoverySocket {
+pub trait AdvertisementData: Sized + Clone {
+    fn encode_to_bytes(&self) -> Vec<u8>;
+    fn try_decode(bytes: &[u8]) -> Option<Self>;
+}
+#[cfg(not(feature="bincode"))]
+mod adv_data_impls {
+    use super::AdvertisementData;
+    impl AdvertisementData for () {
+        fn encode_to_bytes(&self) -> Vec<u8> {
+            Vec::new()
+        }
+        fn try_decode(bytes: &[u8]) -> Option<Self> {
+            if bytes.is_empty() {
+                Some(())
+            }
+            else {
+                None
+            }
+        }
+
+    }
+    impl AdvertisementData for Vec<u8> {
+        fn encode_to_bytes(&self) -> Vec<u8> {
+            self.clone()
+        }
+        fn try_decode(bytes: &[u8]) -> Option<Self> {
+            Some(bytes.to_vec())
+        }
+    }
+}
+
+#[cfg(feature="bincode")]
+use bincode::{Decode, Encode};
+#[cfg(feature="bincode")]
+impl<T> AdvertisementData for T
+    where T: Encode + Decode<()> + Clone {
+    fn encode_to_bytes(&self) -> Vec<u8> {
+        bincode::encode_to_vec(self, bincode::config::standard()).unwrap()
+    }
+    fn try_decode(bytes: &[u8]) -> Option<Self> {
+        bincode::decode_from_slice(bytes, bincode::config::standard())
+            .ok()
+            .map(|(v, l)| v)
+    }
+}
+
+pub struct MulticastDiscoverySocket<D: AdvertisementData> {
     socket: MultiInterfaceSocket,
     cfg: MulticastDiscoveryConfig,
     discover_id: u32,
@@ -54,7 +101,8 @@ pub struct MulticastDiscoverySocket {
     announce_enabled: bool,
     discover_replies: bool,
     /// Announce payload: service port. If not set, announcements are disabled
-    local_port: Option<u16>,
+    service_port: Option<u16>,
+    advertisement_data: D,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -75,23 +123,26 @@ impl Deref for MulticastRunningPort {
     }
 }
 
-pub enum PollResult {
+
+pub enum PollResult<'a, D> {
     DiscoveredClient {
         addr: SocketAddrV4,
         discover_id: u32,
+        adv_data: &'a D,
     },
     DisconnectedClient {
         addr: SocketAddrV4,
-        discover_id: u32,
+        discover_id: u32
     }
 }
 
-impl MulticastDiscoverySocket {
+impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
     pub fn new_discover_only(cfg: &MulticastDiscoveryConfig) -> io::Result<Self> {
-        Self::new(cfg, None)
+        unsafe { Self::new(cfg, None, mem::zeroed()) }
     }
     /// Create new socket for multicast discovery.
-    pub fn new(cfg: &MulticastDiscoveryConfig, local_port: Option<u16>) -> io::Result<Self> {
+    /// Enable feature `bincode` for passing `Encode` + `Decode` types as adv_data
+    pub fn new(cfg: &MulticastDiscoveryConfig, service_port: Option<u16>, adv_data: D) -> io::Result<Self> {
         let central_discovery_enabled = cfg.central_discovery_addr.is_some();
         let mut is_primary = true;
         
@@ -138,13 +189,15 @@ impl MulticastDiscoverySocket {
                     return Ok(Self {
                         socket,
                         interface_tracker,
-                        local_port,
                         cfg: cfg.clone(),
                         discover_id: rand::random_range(0..u32::MAX),
                         running_port,
 
                         announce_enabled: cfg.enable_announce,
                         discover_replies: cfg.enable_announce,
+
+                        service_port,
+                        advertisement_data: adv_data
                     })
                 }
                 Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
@@ -181,11 +234,15 @@ impl MulticastDiscoverySocket {
         self.discover_replies = enable;
     }
 
+    pub fn adv_data(&mut self) -> Option<&mut D> {
+        self.service_port.map(|_| &mut self.advertisement_data)
+    }
+
     /// Manually discover all clients on main or backup ports (using `Discovery` message).
     /// Results can be collected by running `poll`.
     pub fn discover(&mut self) {
         info!("Multicast discovery: running manual discovery...");
-        let msg = DiscoveryMessage::Discovery.gen_message();
+        let msg = DiscoveryMessage::Discovery::<D>.gen_message();
         for (interface, _) in self.interface_tracker.iter_mut() {
             let Some(index) = interface.index else {
                 continue;
@@ -210,7 +267,7 @@ impl MulticastDiscoverySocket {
     /// - handling incoming messages (and returning discovery results via `discover_msg` callback)
     ///
     /// It is recommended to call this function in a loop with ~100ms sleep
-    pub fn poll(&mut self, mut discover_msg: impl FnMut(PollResult)) {
+    pub fn poll(&mut self, mut discover_msg: impl FnMut(PollResult<D>)) {
         // 0. poll interface updates
         self.interface_tracker.poll_updates(|new_ip| {
             if let Err(e) = self.socket.join_multicast_group(self.cfg.multicast_group_ip, new_ip) {
@@ -222,7 +279,7 @@ impl MulticastDiscoverySocket {
         });
     
         let mut interface_cnt = 0;
-        if self.announce_enabled && self.local_port.is_some() {
+        if self.announce_enabled && self.service_port.is_some() {
             for (interface, state) in self.interface_tracker.iter_mut() {
                 let Some(interface_index) = interface.index else {
                     continue;
@@ -241,9 +298,10 @@ impl MulticastDiscoverySocket {
                     state.last_announce_tm = Some(now);
 
                     let msg = DiscoveryMessage::Announce {
-                        local_port: self.local_port.unwrap_or_default(),
+                        service_port: self.service_port.unwrap_or_default(),
                         discover_id: self.discover_id,
-                        disconnected: false
+                        disconnected: false,
+                        adv_data: Cow::Borrowed(&self.advertisement_data)
                     }.gen_message();
                     if should_extended_announce {
                         for port in self.cfg.iter_ports() {
@@ -263,7 +321,7 @@ impl MulticastDiscoverySocket {
                 // 2. Sending extend requests
                 if matches!(self.running_port, MulticastRunningPort::Backup(_)) && should_send_extend_request {
                     state.extend_request_send_tm = Some(now);
-                    let msg = DiscoveryMessage::ExtendAnnouncements.gen_message();
+                    let msg = DiscoveryMessage::ExtendAnnouncements::<D>.gen_message();
                     for port in self.cfg.iter_ports() {
                         let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), interface_index);
                         handle_err(res, "send extended announce request", interface);
@@ -287,13 +345,14 @@ impl MulticastDiscoverySocket {
                 continue;
             }
 
-            match DiscoveryMessage::try_parse(&data) {
+            match DiscoveryMessage::<D>::try_parse(&data) {
                 Some(DiscoveryMessage::Discovery) => {
-                    if self.discover_replies && self.local_port.is_some() {
+                    if self.discover_replies && self.service_port.is_some() {
                         let announce = DiscoveryMessage::Announce {
                             disconnected: false,
                             discover_id: self.discover_id,
-                            local_port: self.local_port.unwrap_or_default(),
+                            service_port: self.service_port.unwrap_or_default(),
+                            adv_data: Cow::Borrowed(&self.advertisement_data)
                         }.gen_message();
                         if let Err(e) = self.socket.send_to_iface(&announce, addr, index) {
                             warn!("Failed to answer to discovery packet: {:?}", e);
@@ -301,12 +360,12 @@ impl MulticastDiscoverySocket {
 
                     }
                 }
-                Some(DiscoveryMessage::Announce { local_port, discover_id, disconnected}) => {
+                Some(DiscoveryMessage::Announce { service_port, discover_id, disconnected, adv_data}) => {
                     if disconnected {
                         discover_msg(PollResult::DisconnectedClient {
                             addr: SocketAddrV4::new(
                                 *addr.ip(),
-                                local_port,
+                                service_port,
                             ),
                             discover_id
                         })
@@ -315,9 +374,10 @@ impl MulticastDiscoverySocket {
                         discover_msg(PollResult::DiscoveredClient {
                             addr: SocketAddrV4::new(
                                 *addr.ip(),
-                                local_port,
+                                service_port,
                             ),
                             discover_id,
+                            adv_data: adv_data.as_ref(),
                         })
                     }
                 }
@@ -339,11 +399,11 @@ impl MulticastDiscoverySocket {
         }
     }
 }
-impl Drop for MulticastDiscoverySocket {
+impl<D: AdvertisementData> Drop for MulticastDiscoverySocket<D> {
     fn drop(&mut self) {
         // Announce disconnection
-        if self.announce_enabled && self.local_port.is_some() {
-            for (interface, state) in self.interface_tracker.iter_mut() {
+        if self.announce_enabled && self.service_port.is_some() {
+            for (interface, _) in self.interface_tracker.iter_mut() {
                 let Some(index) = interface.index else {
                     continue;
                 };
@@ -354,8 +414,9 @@ impl Drop for MulticastDiscoverySocket {
 
                 let msg = DiscoveryMessage::Announce {
                     discover_id: self.discover_id,
-                    local_port: self.local_port.unwrap_or_default(),
-                    disconnected: true
+                    service_port: self.service_port.unwrap_or_default(),
+                    disconnected: true,
+                    adv_data: Cow::Borrowed(&self.advertisement_data)
                 }.gen_message();
                 for port in self.cfg.iter_ports() {
                     let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port),index);

@@ -7,7 +7,7 @@ use multicast_discovery_socket::config::MulticastDiscoveryConfig;
 use multicast_discovery_socket::{MulticastDiscoverySocket, PollResult};
 
 fn main() {
-    simple_logger::init_with_level(log::Level::Info).unwrap();
+    simple_logger::init_with_level(log::Level::Debug).unwrap();
 
     static EXIT: AtomicBool = AtomicBool::new(false);
     ctrlc::set_handler(|| {
@@ -17,7 +17,7 @@ fn main() {
     let cfg = MulticastDiscoveryConfig::new(Ipv4Addr::new(239, 37, 37, 37), "multicast-example".into())
         .with_multicast_port(37337)
         .with_backup_ports(62337..62339);
-    let mut socket = MulticastDiscoverySocket::new(&cfg, None).unwrap();
+    let mut socket: MulticastDiscoverySocket<()> = MulticastDiscoverySocket::new_discover_only(&cfg).unwrap();
 
     let mut last_send_tm: Option<Instant> = None;
     loop {
@@ -33,7 +33,8 @@ fn main() {
             match msg {
                 PollResult::DiscoveredClient {
                     addr,
-                    discover_id
+                    discover_id,
+                    adv_data
                 } => {
                     println!("Discovered client: {} - {:x}", addr, discover_id);
                 }
