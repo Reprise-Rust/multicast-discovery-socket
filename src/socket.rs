@@ -1,4 +1,4 @@
-use std::{io, mem};
+use std::io;
 use std::io::{IoSlice, IoSliceMut, Result};
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -24,18 +24,16 @@ mod win_helper {
     use std::os::windows::io::RawSocket;
     use std::os::windows::prelude::AsRawSocket;
     use socket2::Socket;
-
+    use winapi::shared::guiddef::GUID;
     use winapi::shared::inaddr::*;
     use winapi::shared::minwindef::DWORD;
     use winapi::shared::minwindef::{INT, LPDWORD};
-    use winapi::shared::winerror::ERROR_BUFFER_OVERFLOW;
     use winapi::shared::ws2def::LPWSAMSG;
     use winapi::shared::ws2def::*;
     use winapi::shared::ws2ipdef::*;
-    use winapi::um::{iptypes, winsock2};
+    use winapi::um::winsock2;
     use winapi::um::mswsock::{LPFN_WSARECVMSG, LPFN_WSASENDMSG, WSAID_WSARECVMSG, WSAID_WSASENDMSG};
     use winapi::um::winsock2::{LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE, SOCKET};
-    use crate::socket::all_ipv4_interfaces;
 
     fn last_error() -> io::Error {
         io::Error::from_raw_os_error(unsafe { winsock2::WSAGetLastError() })
@@ -67,41 +65,39 @@ mod win_helper {
         lpOverlapped: LPWSAOVERLAPPED,
         lpCompletionRoutine: LPWSAOVERLAPPED_COMPLETION_ROUTINE,
     ) -> INT;
-
+    
+    unsafe fn get_fn_pointer(socket: RawSocket, guid: GUID, fn_pointer: &mut usize, byte_len: &mut u32) -> c_int {
+        let fn_ptr = fn_pointer as *const _ as *mut _;
+        winsock2::WSAIoctl(
+            socket as _,
+            SIO_GET_EXTENSION_FUNCTION_POINTER,
+            &guid as *const _ as *mut _,
+            mem::size_of_val(&guid) as DWORD,
+            fn_ptr,
+            mem::size_of_val(&fn_ptr) as DWORD,
+            byte_len,
+            ptr::null_mut(),
+            None,
+        )
+    }
+    
     fn locate_wsarecvmsg(socket: RawSocket) -> io::Result<WSARecvMsgExtension> {
         let mut fn_pointer: usize = 0;
         let mut byte_len: u32 = 0;
 
-        let r = unsafe {
-            winsock2::WSAIoctl(
-                socket as _,
-                SIO_GET_EXTENSION_FUNCTION_POINTER,
-                &WSAID_WSARECVMSG as *const _ as *mut _,
-                mem::size_of_val(&WSAID_WSARECVMSG) as DWORD,
-                &mut fn_pointer as *const _ as *mut _,
-                mem::size_of_val(&fn_pointer) as DWORD,
-                &mut byte_len,
-                ptr::null_mut(),
-                None,
-            )
-        };
+        let r = unsafe { get_fn_pointer(socket, WSAID_WSARECVMSG, &mut fn_pointer, &mut byte_len) };
+
         if r != 0 {
             return Err(io::Error::last_os_error());
         }
 
         if mem::size_of::<LPFN_WSARECVMSG>() != byte_len as _ {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Locating fn pointer to WSARecvMsg returned different expected bytes",
-            ));
+            return Err(io::Error::other("Locating fn pointer to WSARecvMsg returned different expected bytes"));
         }
         let cast_to_fn: LPFN_WSARECVMSG = unsafe { mem::transmute(fn_pointer) };
 
         match cast_to_fn {
-            None => Err(io::Error::new(
-                io::ErrorKind::Other,
-                "WSARecvMsg extension not foud",
-            )),
+            None => Err(io::Error::other("WSARecvMsg extension not found")),
             Some(extension) => Ok(extension),
         }
     }
@@ -110,35 +106,18 @@ mod win_helper {
         let mut fn_pointer: usize = 0;
         let mut byte_len: u32 = 0;
 
-        let r = unsafe {
-            winsock2::WSAIoctl(
-                socket as _,
-                SIO_GET_EXTENSION_FUNCTION_POINTER,
-                &WSAID_WSASENDMSG as *const _ as *mut _,
-                mem::size_of_val(&WSAID_WSASENDMSG) as DWORD,
-                &mut fn_pointer as *const _ as *mut _,
-                mem::size_of_val(&fn_pointer) as DWORD,
-                &mut byte_len,
-                ptr::null_mut(),
-                None,
-            )
-        };
+        let r = unsafe { get_fn_pointer(socket, WSAID_WSASENDMSG, &mut fn_pointer, &mut byte_len) };
         if r != 0 {
             return Err(io::Error::last_os_error());
         }
 
         if mem::size_of::<LPFN_WSASENDMSG>() != byte_len as _ {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Locating fn pointer to WSASendMsg returned different expected bytes",
-            ));
+            return Err(io::Error::other("Locating fn pointer to WSASendMsg returned different expected bytes"));
         }
         let cast_to_fn: LPFN_WSASENDMSG = unsafe { mem::transmute(fn_pointer) };
 
         match cast_to_fn {
-            None => Err(io::Error::new(
-                io::ErrorKind::Other,
-                "WSASendMsg extension not foud",
+            None => Err(io::Error::other("WSASendMsg extension not found",
             )),
             Some(extension) => Ok(extension),
         }
@@ -161,8 +140,8 @@ mod win_helper {
         new_addr
     }
 
-    const CMSG_HEADER_SIZE: usize = mem::size_of::<WSACMSGHDR>();
-    const PKTINFO_DATA_SIZE: usize = mem::size_of::<IN_PKTINFO>();
+    const CMSG_HEADER_SIZE: usize = size_of::<WSACMSGHDR>();
+    const PKTINFO_DATA_SIZE: usize = size_of::<IN_PKTINFO>();
     const CONTROL_PKTINFO_BUFFER_SIZE: usize = CMSG_HEADER_SIZE + PKTINFO_DATA_SIZE;
 
     pub fn win_init(
@@ -422,7 +401,7 @@ impl MultiInterfaceSocket {
         use std::os::fd::AsRawFd;
         
         let bufs = [IoSlice::new(buf)];
-        let mut pkt_info: nix::libc::in_pktinfo = unsafe { mem::zeroed() };
+        let mut pkt_info: nix::libc::in_pktinfo = unsafe { std::mem::zeroed() };
         pkt_info.ipi_ifindex = iface_index as i32;
 
         socket::sendmsg(
@@ -436,12 +415,12 @@ impl MultiInterfaceSocket {
     }
 
     #[cfg(windows)]
-    pub fn send_to_iface<'a>(&self, buf: &'a [u8], addr: SocketAddrV4, iface_index: u32, source_if_addr: IpAddr) -> Result<usize> {
+    pub fn send_to_iface(&self, buf: &[u8], addr: SocketAddrV4, iface_index: u32, source_if_addr: IpAddr) -> Result<usize> {
         if let IpAddr::V4(source_ip_addr) = source_if_addr {
             self.wsa_structs.send(buf, addr, iface_index, source_ip_addr, &self.socket)
         }
         else {
-            Err(io::Error::new(io::ErrorKind::Other, "Not an IPv4 address"))
+            Err(io::Error::other("Not an IPv4 address"))
         }
     }
 }
