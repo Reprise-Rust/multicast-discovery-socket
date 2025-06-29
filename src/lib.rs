@@ -234,6 +234,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
         self.discover_replies = enable;
     }
 
+    /// Guaranteed to return Some(&mut D) if was created with `Self::new`
     pub fn adv_data(&mut self) -> Option<&mut D> {
         self.service_port.map(|_| &mut self.advertisement_data)
     }

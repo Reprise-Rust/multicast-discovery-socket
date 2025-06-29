@@ -2,6 +2,7 @@ use std::net::Ipv4Addr;
 use std::sync::atomic::AtomicBool;
 use std::thread;
 use std::time::Duration;
+use log::info;
 use multicast_discovery_socket::config::MulticastDiscoveryConfig;
 use multicast_discovery_socket::{MulticastDiscoverySocket, PollResult};
 
@@ -18,6 +19,7 @@ fn main() {
         .with_backup_ports(62337..62339);
 
     let name = format!("Client {}", rand::random::<u8>());
+    info!("Running as {name}");
     let mut socket = MulticastDiscoverySocket::new(&cfg, Some(12345), name).unwrap();
     
     loop {
