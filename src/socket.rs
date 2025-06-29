@@ -1,8 +1,7 @@
-use std::ffi::c_int;
 use std::{io, mem};
-use std::io::{Error, ErrorKind, IoSlice, IoSliceMut, Result};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use std::io::{IoSlice, IoSliceMut, Result};
+use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
+use socket2::{Domain, Protocol, Socket, Type};
 #[cfg(unix)]
 use nix::sys::socket;
 
@@ -14,7 +13,7 @@ pub struct MultiInterfaceSocket {
 }
 #[cfg(unix)]
 fn nix_to_io_error(e: nix::Error) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, e)
+    io::Error::other(e)
 }
 
 #[cfg(windows)]
@@ -356,7 +355,7 @@ impl MultiInterfaceSocket {
         if let Some(addr) = addr.as_socket_ipv4() {
             Ok(addr)
         } else {
-            Err(io::Error::new(io::ErrorKind::Other, "Not an IPv4 address"))
+            Err(io::Error::other("Not an IPv4 address"))
         }
     }
     
@@ -386,7 +385,7 @@ impl MultiInterfaceSocket {
     /// `recvfrom`, but with interface index.
     #[cfg(unix)]
     pub fn recv_from_iface<'a>(&self, buf: &'a mut [u8]) -> Result<(&'a mut [u8], SocketAddrV4, u32)> {
-        use std::os::fd::{AsFd, AsRawFd};
+        use std::os::fd::AsRawFd;
         
         let mut control_buffer = nix::cmsg_space!(nix::libc::in_pktinfo);
         let mut bufs = [IoSliceMut::new(buf)];
@@ -419,8 +418,8 @@ impl MultiInterfaceSocket {
         Ok((&mut buf[..sz], addr, iface))
     }
     #[cfg(unix)]
-    pub fn send_to_iface<'a>(&self, buf: &'a [u8], addr: SocketAddrV4, iface_index: u32, _source_if_addr: IpAddr) -> Result<usize> {
-        use std::os::fd::{AsFd, AsRawFd};
+    pub fn send_to_iface(&self, buf: &[u8], addr: SocketAddrV4, iface_index: u32, _source_if_addr: IpAddr) -> Result<usize> {
+        use std::os::fd::AsRawFd;
         
         let bufs = [IoSlice::new(buf)];
         let mut pkt_info: nix::libc::in_pktinfo = unsafe { mem::zeroed() };
@@ -442,7 +441,7 @@ impl MultiInterfaceSocket {
             self.wsa_structs.send(buf, addr, iface_index, source_ip_addr, &self.socket)
         }
         else {
-            Err(Error::new(ErrorKind::Other, "Not an IPv4 address"))
+            Err(io::Error::new(io::ErrorKind::Other, "Not an IPv4 address"))
         }
     }
 }

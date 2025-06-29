@@ -32,7 +32,7 @@ impl<D: Default> InterfaceTracker<D> {
             if let Some(pos) = original_ips.iter().position(|x| *x == new_ip) {
                 original_ips.swap_remove(pos);
             }
-            if let Some((interface, d)) = self.interfaces.get_mut(&new_ip) {
+            if let Some((interface, _)) = self.interfaces.get_mut(&new_ip) {
                 if interface != &new_interface {
                     if interface.name != new_interface.name {
                         info!("[{:?}] Interface name updated: {:?} -> {:?}", new_ip, interface.name, new_interface.name);

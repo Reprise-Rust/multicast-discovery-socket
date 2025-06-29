@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::net::SocketAddrV4;
 use log::debug;
 use sha2::Digest;
 use crate::AdvertisementData;
@@ -66,9 +65,8 @@ impl<D: AdvertisementData> DiscoveryMessage<'_, D> {
             let discover_id = u32::from_be_bytes(msg_body[2..6].try_into().unwrap());
             let disconnected = msg_body[6] != 0;
             let adv_data_body = &msg_body[7..];
-            let Some(adv_data) = D::try_decode(adv_data_body) else {
-                return None;
-            };
+            let adv_data = D::try_decode(adv_data_body)?;
+
             Some(DiscoveryMessage::Announce {
                 adv_data: Cow::Owned(adv_data),
                 service_port,

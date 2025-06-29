@@ -36,7 +36,7 @@ fn main() {
                     discover_id,
                     adv_data
                 } => {
-                    println!("Discovered client: {} - {:x}", addr, discover_id);
+                    println!("Discovered client: {} - {:x}: {}", addr, discover_id, adv_data);
                 }
                 PollResult::DisconnectedClient {
                     addr,

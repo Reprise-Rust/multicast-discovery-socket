@@ -1,4 +1,7 @@
-use std::{io, mem, thread};
+#![allow(clippy::int_plus_one)]
+#![allow(clippy::new_without_default)]
+
+use std::{io, thread};
 use std::borrow::Cow;
 use std::iter::once;
 use std::net::{IpAddr, SocketAddrV4};
@@ -87,7 +90,7 @@ impl<T> AdvertisementData for T
     fn try_decode(bytes: &[u8]) -> Option<Self> {
         bincode::decode_from_slice(bytes, bincode::config::standard())
             .ok()
-            .map(|(v, l)| v)
+            .map(|(v, _)| v)
     }
 }
 
@@ -351,7 +354,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                 continue;
             }
 
-            match DiscoveryMessage::<D>::try_parse(&data) {
+            match DiscoveryMessage::<D>::try_parse(data) {
                 Some(DiscoveryMessage::Discovery) => {
                     if let Some((service_port, adv_data)) = self.service_port_and_adv_data.as_mut() {
                         if self.discover_replies {
@@ -361,7 +364,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                                 service_port: *service_port,
                                 adv_data: Cow::Borrowed(&*adv_data)
                             }.gen_message();
-                            let source_addr = self.interface_tracker.iter_mapping().find(|(i, a)| *i == index);
+                            let source_addr = self.interface_tracker.iter_mapping().find(|(i, _)| *i == index);
                             if let Some((_, a)) = source_addr {
                                 if let Err(e) = self.socket.send_to_iface(&announce, addr, index, a.into()) {
                                     warn!("Failed to answer to discovery packet: {:?}", e);
@@ -432,7 +435,7 @@ impl<D: AdvertisementData> Drop for MulticastDiscoverySocket<D> {
                     discover_id: self.discover_id,
                     service_port: *service_port,
                     disconnected: true,
-                    adv_data: Cow::Borrowed(&*adv_data)
+                    adv_data: Cow::Borrowed(adv_data)
                 }.gen_message();
                 for port in self.cfg.iter_ports() {
                     let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port),index, interface.addr.ip());
