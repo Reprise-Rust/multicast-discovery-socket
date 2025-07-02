@@ -1,17 +1,17 @@
 [package]
 name = "multicast-discovery-socket"
 description = "Ready to use discovery solution for local networks"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 repository = "https://github.com/skibon02/multicast-discovery-socket"
 license = "MIT OR Apache-2.0"
 keywords = ['multicast', 'lan', 'discovery']
 
 [dependencies]
-sha2 = "0.10.9"
 log = "0.4.27"
 socket2 = "0.5.10"
-rand = "0.9.1"
+sha2-const-stable = "0.1.0"
+rand = { version = "0.9.1", optional = true }
 bincode = { version = "2.0.1", optional = true }
 
 [target.'cfg(unix)'.dependencies]
@@ -28,5 +28,6 @@ simple_logger = "5.0.0"
 ctrlc = "3.4.7"
 
 [features]
-default = ["bincode"]
+default = ["bincode", "rand"]
 bincode = ["dep:bincode"]
+rand = ["dep:rand"]

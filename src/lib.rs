@@ -175,7 +175,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                     socket.set_nonblocking(true)?;
                     
                     let running_port = if is_primary {
-                        debug!("Using primary multicast port {} for discovery", port);
+                        debug!("Using primary multicast port {port} for discovery");
                         MulticastRunningPort::Primary(port)
                     }
                     else if port == 0 {
@@ -190,14 +190,19 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                         MulticastRunningPort::Other
                     }
                     else {
-                        warn!("Using backup multicast port {} for discovery (unable to start on main port {})", port, main_port);
+                        warn!("Using backup multicast port {port} for discovery (unable to start on main port {main_port})");
                         MulticastRunningPort::Backup(port)
                     };
+                    #[cfg(feature="rand")]
+                    let discover_id = rand::random_range(1..u32::MAX);
+                    #[cfg(not(feature="rand"))]
+                    let discover_id = std::time::UNIX_EPOCH.elapsed().unwrap_or_default().as_nanos() as u32;
+
                     return Ok(Self {
                         socket,
                         interface_tracker,
                         cfg: cfg.clone(),
-                        discover_id: rand::random_range(0..u32::MAX),
+                        discover_id,
                         running_port,
 
                         announce_enabled: cfg.enable_announce,
@@ -212,7 +217,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                 },
                 Err(e) => {
                     is_primary = false;
-                    warn!("Failed to bind socket to port {}: {}", port, e);
+                    warn!("Failed to bind socket to port {port}: {e}");
                     continue;
                 }
             }
@@ -221,7 +226,8 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
         error!("Failed to bind multicast discovery socket to any port!");
         Err(io::Error::new(io::ErrorKind::AddrInUse, "Failed to bind socket to any port"))
     }
-    
+
+    /// Returns discover ID. It is generated randomly, and can be used to detect client application restart.
     pub fn discover_id(&self) -> u32 {
         self.discover_id
     }
@@ -278,10 +284,10 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
         // 0. poll interface updates
         self.interface_tracker.poll_updates(|new_ip| {
             if let Err(e) = self.socket.join_multicast_group(self.cfg.multicast_group_ip, new_ip) {
-                warn!("Failed to join multicast group on interface {}: {}", new_ip, e);
+                warn!("Failed to join multicast group on interface {new_ip}: {e}");
             }
             else {
-                info!("Joined multicast group on interface {}!", new_ip);
+                info!("Joined multicast group on interface {new_ip}!");
             }
         });
     
@@ -367,7 +373,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                             let source_addr = self.interface_tracker.iter_mapping().find(|(i, _)| *i == index);
                             if let Some((_, a)) = source_addr {
                                 if let Err(e) = self.socket.send_to_iface(&announce, addr, index, a.into()) {
-                                    warn!("Failed to answer to discovery packet: {:?}", e);
+                                    warn!("Failed to answer to discovery packet: {e:?}");
                                 }
                             }
                             else {
@@ -409,7 +415,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                     }
                 }
                 None => {
-                    warn!("Received unknown message from {}: {:?}", addr, data);
+                    warn!("Received unknown message from {addr}: {data:?}");
                 }
             }
         }

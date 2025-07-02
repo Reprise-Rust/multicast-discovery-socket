@@ -424,14 +424,3 @@ impl MultiInterfaceSocket {
         }
     }
 }
-
-pub fn all_ipv4_interfaces() -> Result<Vec<Ipv4Addr>> {
-    let interfaces = if_addrs::get_if_addrs()?
-        .into_iter()
-        .filter_map(|i| match i.ip() {
-            std::net::IpAddr::V4(v4) => Some(v4),
-            _ => None,
-        })
-        .collect();
-    Ok(interfaces)
-}

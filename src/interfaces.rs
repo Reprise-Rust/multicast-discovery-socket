@@ -51,7 +51,7 @@ impl<D: Default> InterfaceTracker<D> {
         }
         
         for interface in original_ips {
-            info!("Interface removed: [{:?}]", interface);
+            info!("Interface removed: [{interface:?}]");
             self.interfaces.remove(&interface);
         }
     }
@@ -63,7 +63,12 @@ fn get_ipv4_interfaces() -> impl Iterator<Item=(Ipv4Addr, Interface)> {
         .into_iter()
         .filter_map(|i| {
             if let IpAddr::V4(ip) = &i.ip() {
-                Some((*ip, i))
+                if ip.is_private() {
+                    Some((*ip, i))
+                }
+                else {
+                    None
+                }
             }
             else {
                 None
