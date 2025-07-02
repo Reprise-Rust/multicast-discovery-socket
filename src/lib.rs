@@ -206,7 +206,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                         running_port,
 
                         announce_enabled: cfg.enable_announce,
-                        discover_replies: cfg.enable_announce,
+                        discover_replies: cfg.discover_replies,
 
                         service_port_and_adv_data,
                     })

@@ -20,7 +20,8 @@ pub struct MulticastDiscoveryConfig {
     pub extended_announcement_effect_dur: Duration,
     pub extend_request_interval: Duration,
     
-    pub enable_announce: bool
+    pub enable_announce: bool,
+    pub discover_replies: bool
 }
 
 impl MulticastDiscoveryConfig {
@@ -35,6 +36,7 @@ impl MulticastDiscoveryConfig {
             service_name,
             central_discovery_addr: None,
             enable_announce: true,
+            discover_replies: true,
             
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             extended_announcement_effect_dur: DEFAULT_EXTENDED_ANNOUNCEMENT_EFFECT_DUR,
@@ -58,6 +60,11 @@ impl MulticastDiscoveryConfig {
     
     pub fn with_disabled_announce(mut self) -> Self {
         self.enable_announce = false;
+        self
+    }
+    
+    pub fn with_disabled_discover_replies(mut self) -> Self {
+        self.discover_replies = false;
         self
     }
     
