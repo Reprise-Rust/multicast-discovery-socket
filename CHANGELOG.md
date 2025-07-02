@@ -5,6 +5,9 @@ The format is partially based on [Keep a Changelog](http://keepachangelog.com/)
 
 ## Versions
 ### [Unreleased]
+- Control `discover_replies` option in config
+
+### [0.1.1] - 2025-07-02
 - make `rand` dependency optional (generate discovery id from time if disabled)
 - switch from `sha2` to `sha2_const_stable`
 - do not check packet integrity using sha256 (only for pseudo-random packet ID)
