@@ -7,17 +7,23 @@ use std::iter::once;
 use std::net::{IpAddr, SocketAddrV4};
 use std::ops::Deref;
 use std::time::{Duration, Instant};
-use if_addrs::Interface;
 use log::{debug, error, info, warn};
 use crate::config::MulticastDiscoveryConfig;
-use crate::interfaces::InterfaceTracker;
 use crate::protocol::DiscoveryMessage;
 use crate::socket::MultiInterfaceSocket;
 
 pub mod config;
 pub mod protocol;
 pub mod socket;
+#[cfg(depend_if_addrs)]
 pub mod interfaces;
+#[cfg(not(depend_if_addrs))]
+#[path="interfaces_fallback.rs"]
+pub mod interfaces;
+
+pub use interfaces::Interface;
+use crate::interfaces::InterfaceTracker;
+
 
 #[derive(Default)]
 pub struct PerInterfaceState {
@@ -163,7 +169,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                     for (interface, _) in interface_tracker.iter_mut() {
                         if let IpAddr::V4(ip) = interface.ip() {
                             if let Err(e) = socket.join_multicast_group(cfg.multicast_group_ip, ip) {
-                                warn!("Failed to join multicast group on interface {}: {}", interface.ip(), e);
+                                warn!("Failed to join multicast group on interface {}: {:?}", interface.ip(), e);
                             }
                             else {
                                 info!("Joined multicast group on interface {}", interface.ip());
@@ -217,7 +223,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                 },
                 Err(e) => {
                     is_primary = false;
-                    warn!("Failed to bind socket to port {port}: {e}");
+                    warn!("Failed to bind socket to port {port}: {e:?}");
                     continue;
                 }
             }
@@ -265,8 +271,8 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
             }
 
             for port in self.cfg.iter_ports() {
-                if let Err(e) = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), index, interface.addr.ip()) {
-                    warn!("Failed to send discovery message on interface [{}] - {}: {}", interface.ip(), interface.name, e);
+                if let Err(e) = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), index, interface.ip()) {
+                    warn!("Failed to send discovery message on interface [{}] - {}: {:?}", interface.ip(), interface.name, e);
                 } else {
                     debug!("Sent discovery message to port {} on interface [{}] - {}", port, interface.ip(), interface.name);
                 }
@@ -284,7 +290,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
         // 0. poll interface updates
         self.interface_tracker.poll_updates(|new_ip| {
             if let Err(e) = self.socket.join_multicast_group(self.cfg.multicast_group_ip, new_ip) {
-                warn!("Failed to join multicast group on interface {new_ip}: {e}");
+                warn!("Failed to join multicast group on interface {new_ip}: {e:?}");
             }
             else {
                 info!("Joined multicast group on interface {new_ip}!");
@@ -319,12 +325,12 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                         }.gen_message();
                         if should_extended_announce {
                             for port in self.cfg.iter_ports() {
-                                let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), interface_index, interface.addr.ip());
+                                let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), interface_index, interface.ip());
                                 handle_err(res, "send extended announce", interface);
                             }
                         }
                         else {
-                            let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, self.cfg.multicast_port), interface_index, interface.addr.ip());
+                            let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, self.cfg.multicast_port), interface_index, interface.ip());
                             handle_err(res, "send normal announce", interface);
                         }
                         if state.extended_announce_enabled && !state.extended_announcements_enabled(now, &self.cfg) {
@@ -337,7 +343,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                         state.extend_request_send_tm = Some(now);
                         let msg = DiscoveryMessage::ExtendAnnouncements::<D>.gen_message();
                         for port in self.cfg.iter_ports() {
-                            let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), interface_index, interface.addr.ip());
+                            let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port), interface_index, interface.ip());
                             handle_err(res, "send extended announce request", interface);
                         }
                     }
@@ -444,7 +450,7 @@ impl<D: AdvertisementData> Drop for MulticastDiscoverySocket<D> {
                     adv_data: Cow::Borrowed(adv_data)
                 }.gen_message();
                 for port in self.cfg.iter_ports() {
-                    let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port),index, interface.addr.ip());
+                    let res = self.socket.send_to_iface(&msg, SocketAddrV4::new(self.cfg.multicast_group_ip, port),index, interface.ip());
                     handle_err(res, "announce disconnected message", interface);
                 }
             }
@@ -454,6 +460,6 @@ impl<D: AdvertisementData> Drop for MulticastDiscoverySocket<D> {
 
 fn handle_err(result: io::Result<usize>, msg: &'static str, interface: &Interface) {
     if let Err(e) = result {
-        warn!("Failed to {} on interface [{:?}] - {}: {}", msg, interface.ip(), interface.name, e);
+        warn!("Failed to {} on interface [{:?}] - {}: {:?}", msg, interface.ip(), interface.name, e);
     }
 }

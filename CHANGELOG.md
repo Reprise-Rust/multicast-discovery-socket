@@ -6,6 +6,7 @@ The format is partially based on [Keep a Changelog](http://keepachangelog.com/)
 ## Versions
 ### [Unreleased]
 - Control `discover_replies` option in config
+- Fallback implementation for all `std` platforms (without interface tracking)
 
 ### [0.1.1] - 2025-07-02
 - make `rand` dependency optional (generate discovery id from time if disabled)

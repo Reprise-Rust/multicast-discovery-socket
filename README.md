@@ -23,6 +23,12 @@ Integrate local client discovery into your rust application with ease!
 - No support for IPv6. IPv4 is supported only.
 - Work without multicast support. Multicast is required for discovery.
 
+## Supported platforms
+- `cfg(windows)` - Windows OS
+- `cfg(target_os="linux")` - Linux OS
+- `cfg(target_os="android")` - Android OS (not tested)
+
+If your platform is not listed here, fallback implementation is used (does not support multiple interfaces, only system default interface)
 
 ## ⚠️ Work in progress
 This library works well as a proof of concept, but it is not yet tested enough.

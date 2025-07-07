@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
-use if_addrs::Interface;
 use log::info;
+
+pub use if_addrs::Interface;
 
 pub struct InterfaceTracker<D> {
     interfaces: HashMap<Ipv4Addr, (Interface, D)>,
