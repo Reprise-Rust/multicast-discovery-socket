@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is partially based on [Keep a Changelog](http://keepachangelog.com/)
 
 ## Versions
-### [Unreleased]
+### [0.1.2] - 2025-07-13
 - Control `discover_replies` option in config
 - Fallback implementation for all `std` platforms (without interface tracking)
 

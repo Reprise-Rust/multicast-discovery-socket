@@ -24,9 +24,10 @@ Integrate local client discovery into your rust application with ease!
 - Work without multicast support. Multicast is required for discovery.
 
 ## Supported platforms
-- `cfg(windows)` - Windows OS
-- `cfg(target_os="linux")` - Linux OS
-- `cfg(target_os="android")` - Android OS (not tested)
+- `cfg(windows)` - Windows OS. Deps: `winapi`, `if_addrs`
+- `cfg(target_os="linux")` - Linux OS. Deps: `nix`, `if_addrs`
+- `cfg(target_os="android")` - Android OS (not tested). Deps: `nix`, `if_addrs`
+- other STD - fallback implementation is used (does not support multiple interfaces, only system default interface)
 
 If your platform is not listed here, fallback implementation is used (does not support multiple interfaces, only system default interface)
 
