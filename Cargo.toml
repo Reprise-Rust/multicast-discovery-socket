@@ -1,7 +1,7 @@
 [package]
 name = "multicast-discovery-socket"
 description = "Ready to use discovery solution for local networks"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 repository = "https://github.com/skibon02/multicast-discovery-socket"
 license = "MIT OR Apache-2.0"
