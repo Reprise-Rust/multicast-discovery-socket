@@ -17,7 +17,7 @@ fn nix_to_io_error(e: nix::Error) -> io::Error {
 }
 
 #[cfg(windows)]
-#[path("./win_specific.rs")]
+#[path = "./win_specific.rs"]
 mod win_helper;
 
 impl MultiInterfaceSocket {
