@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 The format is partially based on [Keep a Changelog](http://keepachangelog.com/)
 
 ## Versions
+### [0.1.4] - 2026-05-10
+- Bump `if_addrs` dependency to 0.15.0
+
 ### [0.1.3] - 2025-07-17
 - Fix build on Windows
 
