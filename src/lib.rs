@@ -321,6 +321,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                             service_port: *service_port,
                             discover_id: self.discover_id,
                             disconnected: false,
+                            service_name: self.cfg.service_name.clone(),
                             adv_data: Cow::Borrowed(&*adv_data)
                         }.gen_message();
                         if should_extended_announce {
@@ -374,6 +375,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                                 disconnected: false,
                                 discover_id: self.discover_id,
                                 service_port: *service_port,
+                                service_name: self.cfg.service_name.clone(),
                                 adv_data: Cow::Borrowed(&*adv_data)
                             }.gen_message();
                             let source_addr = self.interface_tracker.iter_mapping().find(|(i, _)| *i == index);
@@ -388,7 +390,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                         }
                     }
                 }
-                Some(DiscoveryMessage::Announce { service_port, discover_id, disconnected, adv_data}) => {
+                Some(DiscoveryMessage::Announce { service_port, discover_id, disconnected, adv_data, service_name }) if service_name == self.cfg.service_name => {
                     if disconnected {
                         discover_msg(PollResult::DisconnectedClient {
                             addr: SocketAddrV4::new(
@@ -409,6 +411,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
                         })
                     }
                 }
+                Some(DiscoveryMessage::Announce {..}) => (),
                 Some(DiscoveryMessage::ExtendAnnouncements) => {
                     for (interface, state) in self.interface_tracker.iter_mut() {
                         if interface.index == Some(index) {
@@ -447,6 +450,7 @@ impl<D: AdvertisementData> Drop for MulticastDiscoverySocket<D> {
                     discover_id: self.discover_id,
                     service_port: *service_port,
                     disconnected: true,
+                    service_name: self.cfg.service_name.clone(),
                     adv_data: Cow::Borrowed(adv_data)
                 }.gen_message();
                 for port in self.cfg.iter_ports() {

@@ -14,7 +14,7 @@ fn main() {
         EXIT.store(true, std::sync::atomic::Ordering::Relaxed);
     }).unwrap();
 
-    let cfg = MulticastDiscoveryConfig::new(Ipv4Addr::new(239, 37, 37, 37), "multicast-example".into())
+    let cfg = MulticastDiscoveryConfig::new(Ipv4Addr::new(239, 37, 37, 37), "multicast-example2".into())
         .with_multicast_port(37337)
         .with_backup_ports(62337..62339);
 

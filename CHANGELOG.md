@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is partially based on [Keep a Changelog](http://keepachangelog.com/)
 
 ## Versions
+### [0.2.0] - 2026-08-20
+- [BREAKING] Add service_name to announcements, filter announcements by service name
+- Update deps
+
+
 ### [0.1.4] - 2026-05-10
 - Bump `if_addrs` dependency to 0.15.0
 
