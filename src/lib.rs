@@ -252,9 +252,14 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
         self.discover_replies = enable;
     }
 
-    /// Guaranteed to return Some(&mut D) if was created with `Self::new`
+    /// Guaranteed to return Some(&mut D) if was created with `Self::new_with_service`
     pub fn adv_data(&mut self) -> Option<&mut D> {
         self.service_port_and_adv_data.as_mut().map(|s| &mut s.1)
+    }
+
+    /// Guaranteed to return Some(&mut D) if was created with `Self::new_with_service`
+    pub fn local_service_port(&mut self) -> Option<&mut u16> {
+        self.service_port_and_adv_data.as_mut().map(|s| &mut s.0)
     }
 
     /// Manually discover all clients on main or backup ports (using `Discovery` message).
@@ -361,7 +366,6 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
         // 3. Handle incoming packets
         let mut buf = [0u8;256];
         while let Ok((data, addr, index)) = self.socket.recv_from_iface(&mut buf) {
-
             // Shut up messages from ourselves on all interfaces
             if self.interface_tracker.iter_mut().any(|(i, _)| i.ip() == IpAddr::V4(*addr.ip())) && addr.port() == *self.running_port {
                 continue;
@@ -430,6 +434,7 @@ impl<D: AdvertisementData> MulticastDiscoverySocket<D> {
         }
     }
 }
+
 impl<D: AdvertisementData> Drop for MulticastDiscoverySocket<D> {
     fn drop(&mut self) {
         // Announce disconnection
