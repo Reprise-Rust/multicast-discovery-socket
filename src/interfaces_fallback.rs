@@ -34,6 +34,11 @@ pub struct InterfaceTracker<D> {
     data: D,
     interface: Interface,
 }
+impl<D: Default> Default for InterfaceTracker<D> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl<D: Default> InterfaceTracker<D> {
     /// \[fallback\]
     /// Always returns a single interface with index 1 and ip address 0.0.0.0
@@ -42,6 +47,18 @@ impl<D: Default> InterfaceTracker<D> {
             data: D::default(),
             interface: Interface::default(),
         }
+    }
+
+    /// \[fallback\]
+    /// The filter is ignored; always returns a single interface with index 1 and ip address 0.0.0.0
+    pub fn new_without_filter() -> Self {
+        Self::new()
+    }
+
+    /// \[fallback\]
+    /// The filter is ignored; always returns a single interface with index 1 and ip address 0.0.0.0
+    pub fn new_with_filter(_filter: impl Fn(&Interface) -> bool + 'static) -> Self {
+        Self::new()
     }
 
     /// \[fallback\]
