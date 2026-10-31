@@ -18,11 +18,13 @@ const DEFAULT_IGNORED_PREFIXES: &[&str] = &[
     "kube-",
 ];
 
-/// Default filter: excludes common tunnel/virtual/docker interface names.
+/// Default filter: excludes point-to-point interfaces (VPN/tunnel links have no
+/// multicast domain) and common tunnel/virtual/docker interface names.
 fn default_filter(interface: &Interface) -> bool {
-    !DEFAULT_IGNORED_PREFIXES
-        .iter()
-        .any(|prefix| interface.name.starts_with(prefix))
+    !interface.is_p2p()
+        && !DEFAULT_IGNORED_PREFIXES
+            .iter()
+            .any(|prefix| interface.name.starts_with(prefix))
 }
 
 pub struct InterfaceTracker<D> {
