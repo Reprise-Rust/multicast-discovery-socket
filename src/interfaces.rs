@@ -29,7 +29,7 @@ fn default_filter(interface: &Interface) -> bool {
 
 pub struct InterfaceTracker<D> {
     interfaces: HashMap<Ipv4Addr, (Interface, D)>,
-    filters: Vec<Box<dyn Fn(&Interface) -> bool>>,
+    filters: Vec<Box<dyn Fn(&Interface) -> bool + Send>>,
 }
 
 impl<D: Default> Default for InterfaceTracker<D> {
@@ -52,11 +52,11 @@ impl<D: Default> InterfaceTracker<D> {
     /// Uses the default filter plus `filter`, i.e. an interface is tracked only if it
     /// passes both. The custom filter can therefore only narrow the set, never widen it.
     /// Filters are applied on the initial scan and on every refresh.
-    pub fn new_with_filter(filter: impl Fn(&Interface) -> bool + 'static) -> Self {
+    pub fn new_with_filter(filter: impl Fn(&Interface) -> bool + Send + 'static) -> Self {
         Self::with_filters(vec![Box::new(default_filter), Box::new(filter)])
     }
 
-    fn with_filters(filters: Vec<Box<dyn Fn(&Interface) -> bool>>) -> Self {
+    fn with_filters(filters: Vec<Box<dyn Fn(&Interface) -> bool + Send>>) -> Self {
         let interfaces = get_ipv4_interfaces(&filters)
             .map(|i| (i.0, (i.1, D::default())))
             .collect();
@@ -108,7 +108,7 @@ impl<D: Default> InterfaceTracker<D> {
     }
 }
 
-fn get_ipv4_interfaces(filters: &[Box<dyn Fn(&Interface) -> bool>]) -> impl Iterator<Item=(Ipv4Addr, Interface)> + '_ {
+fn get_ipv4_interfaces(filters: &[Box<dyn Fn(&Interface) -> bool + Send>]) -> impl Iterator<Item=(Ipv4Addr, Interface)> + '_ {
     if_addrs::get_if_addrs()
         .unwrap_or_default()
         .into_iter()

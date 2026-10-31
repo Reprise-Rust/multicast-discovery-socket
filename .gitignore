@@ -1,5 +1,5 @@
 /target
 .envrc
-.idea
+/.idea
 .direnv
 .toolchain
